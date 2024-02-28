@@ -1,0 +1,151 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: Stack that creates an AWS budget, cost alert notifications
+
+Parameters:
+  BudgetAmount:
+    Type: Number
+    Default: 0.5 #  change yous daily $ threshold here, e.g. 100 or 50
+    Description: Maximum permissible spend for per day
+  FirstThreshold:
+    Description: The first threshold at which you'll receive a notification
+    Type: Number
+    Default: 100
+  Email:  #alert recipient array, email@ascendingdc.com.email2@ascendingdc.com
+    Type: CommaDelimitedList 
+    Default: "cynthia.zhang@ascendingdc.com, xintian0122@gmail.com"  #put your recipient email here
+    Description: Email address to deliver notifications to
+
+Resources:
+  WarningTopic:
+    Type: AWS::SNS::Topic
+
+  WarningTopicPolicy:
+    Type: AWS::SNS::TopicPolicy
+    Properties:
+      PolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Action: sns:Publish
+            Resource: "*"
+            Principal:
+              Service: budgets.amazonaws.com
+      Topics:
+        - !Ref WarningTopic
+
+  Budget:
+    Type: AWS::Budgets::Budget
+    Properties:
+      Budget:
+        BudgetLimit:
+          Amount: !Ref BudgetAmount
+          Unit: USD
+        TimeUnit: DAILY #MONTHLY
+        BudgetType: COST
+      NotificationsWithSubscribers:
+        - Notification:
+            NotificationType: ACTUAL
+            ComparisonOperator: GREATER_THAN
+            Threshold: !Ref FirstThreshold
+            ThresholdType: PERCENTAGE
+          Subscribers:
+            - SubscriptionType: SNS
+              Address: !Ref WarningTopic
+
+#LambdaExecutionRole
+  LambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: LambdaSNSPolicy
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - sns:Subscribe
+                  - sns:Unsubscribe
+                Resource: !Ref WarningTopic
+
+#lambda function
+  # SubscriptionLambdaFunction:
+  #     Type: AWS::Lambda::Function
+  #     Properties:
+  #       FunctionName: CostAlertFunction
+  #       Handler: alert.lambda_handler    
+  #       Role: !GetAtt LambdaExecutionRole.Arn
+  #       Runtime: python3.8
+  #       Timeout: 120
+  #       MemorySize: 1024
+  #       Code:
+  #         S3Bucket: cost-alert-s3-bucket
+  #         S3Key: alert.zip     
+
+  # SubscriptionLambdaFunction:
+  #   Type: AWS::Lambda::Function
+  #   Properties:
+  #     Handler: index.handler
+  #     Role: !GetAtt LambdaExecutionRole.Arn
+  #     Code:
+  #       ZipFile: |
+  #         import json
+  #         import boto3
+  #         import cfnresponse
+          
+  #         def handler(event, context):
+  #             sns = boto3.client('sns')
+  #             response_data = {}
+  #             try:
+  #                 emails = event['ResourceProperties']['Emails']
+  #                 topic_arn = event['ResourceProperties']['TopicArn']
+                  
+  #                 if event['RequestType'] == 'Delete':
+  #                     # we can handle delete event 
+  #                     pass
+  #                 if event['RequestType'] == 'Update':
+  #                     # we can handle update event 
+  #                     pass
+  #                 else:
+  #                     for email in emails:
+  #                         sns.subscribe(TopicArn=topic_arn, Protocol='email', Endpoint=email)
+                  
+  #                 cfnresponse.send(event, context, cfnresponse.SUCCESS, response_data)
+  #             except Exception as e:
+  #                 print(e)
+  #                 cfnresponse.send(event, context, cfnresponse.FAILED, response_data)
+  #     Runtime: python3.8
+  #     Timeout: 120
+
+
+  SubscriptionLambdaFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: subscription_lambda_function/
+      Handler: alert.lambda_handler
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Architectures:
+      - x86_64
+      Runtime: python3.12
+      Timeout: 120
+
+  EmailSubscriptionResource:
+    Type: Custom::EmailSubscription 
+    Properties:
+      ServiceToken: !GetAtt SubscriptionLambdaFunction.Arn
+      Emails: !Ref Email
+      TopicArn: !Ref WarningTopic
+    DependsOn: 
+      - SubscriptionLambdaFunction
+      - WarningTopic
+
+Outputs:
+  BudgetId:
+    Value: !Ref Budget
