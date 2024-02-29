@@ -6,8 +6,13 @@ set -eo pipefail  #This line sets some options for the shell.
 pipenv --version
 
 rm -rf package #This command recursively removes the package directory
-pipenv lock -r > requirements.txt  #This generates a requirements.txt file from the Pipfile.lock using Pipenv. 
+
+#pipenv lock -r > requirements.txt  #This generates a requirements.txt file from the Pipfile.lock using Pipenv. 
                                    #This file contains a list of all Python packages required for the project and their versions.
+# Generate Pipfile.lock
+pipenv lock
+# Generate requirements.txt from Pipfile.lock
+pipenv run pip freeze > requirements.txt
 pip install  --target ./package/python -r requirements.txt
 # cd package && zip -r layer.zip ./python
 cd package && zip -r ${VERSION}.zip ./python
