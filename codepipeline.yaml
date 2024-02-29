@@ -1,0 +1,110 @@
+---
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Cloudformation template to create codebuild and codepipeline for backend
+Parameters:
+  SecurityStack:
+    Description: Name of an active CloudFormation stack that contains all roles and SGs resources
+    Type: String
+    Default: Security
+  ProductName:
+    Description: stack name to provision the api gateway
+    Type: String
+  OAuthToken:
+    Description: OAuthToken to connect to github
+    Type: String
+    NoEcho: true
+  Environment:
+    Description: In which environment will this template be running
+    Type: String
+    AllowedValues:
+      - uat
+      - prod
+  GitHubRepoName:
+    Description: repo name
+    Type: String
+  GitHubOwner:
+    Description: github repository owner
+    Type: String
+    Default: "xintian0122" #
+Mappings:
+  Map:
+    uat:
+      Branch: test
+      S3: admdev-devops
+    prod:
+      Branch: main
+      S3: admdev-devops-prod
+Resources:
+  BuildAndDeploy:
+    Type: AWS::CodeBuild::Project
+    Properties:
+      Artifacts:
+        Type: no_artifacts
+      Description: Build and Deploy Serverless API
+      Environment: 
+        EnvironmentVariables:
+          - Name: ENV
+            Value: !Ref Environment
+          - Name: StackName
+            Value: !Join [ "-", [ !Ref ProductName, !Ref Environment ] ]
+          - Name: S3Bucket
+            Value: !FindInMap [Map, !Ref Environment, S3]
+        ComputeType: BUILD_GENERAL1_SMALL
+        Image: aws/codebuild/amazonlinux2-x86_64-standard:3.0
+        Type: LINUX_CONTAINER
+      ServiceRole: 
+        Fn::ImportValue: !Sub ${SecurityStack}-CodeBuildRole
+      Source: 
+        BuildSpec: |
+          version: 0.2
+          phases:
+            pre_build:
+              commands:
+                - if [ -z "$CODEBUILD_RESOLVED_SOURCE_VERSION" ]; then SRC_HASH=${CODEBUILD_SOURCE_VERSION}; else SRC_HASH=${CODEBUILD_RESOLVED_SOURCE_VERSION}; fi
+                - VERSION=$(echo ${SRC_HASH} | cut -b 1-8)
+            build:
+              commands:
+                - ./build-layer.sh ${S3Bucket}
+                - ./deploy.sh ${S3Bucket} ${StackName} ${ENV} ${VERSION}
+           
+        GitCloneDepth: 1
+        Location: !Join [ "/", [ "https://github.com",!Ref GitHubOwner, !Ref GitHubRepoName ] ]
+        Type: GITHUB
+  CodePipeline:
+    Type: AWS::CodePipeline::Pipeline
+    Properties:
+      RoleArn: 
+        Fn::ImportValue: !Sub ${SecurityStack}-CodePipelineRole
+      ArtifactStore:
+        Type: S3
+        Location: !FindInMap [Map, !Ref Environment, S3]
+      Stages:
+        - Name: Source
+          Actions:
+            - Name: Source
+              ActionTypeId: 
+                Category: Source
+                Owner: ThirdParty
+                Provider: GitHub
+                Version: 1
+              Configuration:
+                Owner: !Ref GitHubOwner
+                Repo: !Ref GitHubRepoName
+                Branch: !FindInMap [Map, !Ref Environment, Branch]
+                OAuthToken: !Ref OAuthToken
+              OutputArtifacts:
+                - Name: Source
+              RunOrder: 1
+        - Name: Build
+          Actions:
+            - Name: BuildAndDeploy
+              ActionTypeId: 
+                Category: Build
+                Owner: AWS
+                Provider: CodeBuild
+                Version: 1
+              Configuration:
+                ProjectName: !Ref BuildAndDeploy
+              InputArtifacts:
+                - Name: Source
+              RunOrder: 1
