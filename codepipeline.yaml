@@ -17,20 +17,22 @@ Parameters:
     Description: In which environment will this template be running
     Type: String
     AllowedValues:
-      - uat
+      - dev #uat
       - prod
   GitHubRepoName:
     Description: repo name
     Type: String
-  GitHubOwner:
+    Default: cost-alert-app2 #
+  GitHubOwner: #
     Description: github repository owner
     Type: String
     Default: "xintian0122" #
+
 Mappings:
   Map:
-    uat:
-      Branch: test
-      S3: admdev-devops
+    dev:
+      Branch: main #test
+      S3: cost-alert-app-dev-bucket #admdev-devops
     prod:
       Branch: main
       S3: admdev-devops-prod

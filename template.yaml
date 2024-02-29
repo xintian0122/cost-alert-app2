@@ -5,7 +5,7 @@ Description: Stack that creates an AWS budget, cost alert notifications
 Parameters:
   BudgetAmount:
     Type: Number
-    Default: 0.5 #  change yous daily $ threshold here, e.g. 100 or 50
+    Default: 0.6 #  change yous daily $ threshold here, e.g. 100 or 50
     Description: Maximum permissible spend for per day
   FirstThreshold:
     Description: The first threshold at which you'll receive a notification
